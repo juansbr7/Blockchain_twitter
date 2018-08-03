@@ -1,0 +1,309 @@
+---
+title: "identity"
+author: "juan"
+date: '2018-02-13'
+output: pdf_document
+---
+
+
+## Setting up libraries:
+
+```{r setup, include=FALSE}
+suppressWarnings(suppressMessages(easypackages::libraries("ggplot2", "xml2", "purrr", "tidyverse", "stringr", "plyr", "knitr", "kableExtra", "formattable", "RColorBrewer", "tm", "Ida", "wordcloud", "qdap", "readr", "dendextend", "topicmodels","Rgraphviz", "graph", "bnlearn", "tidytext", "sentiment")))
+
+data("stop_words")
+```
+
+### Importing the CSV file with the raw tweets and creating a view of the document.
+
+```{r warning=FALSE, error=FALSE,  include=FALSE}
+identity<- read_csv("data_id.csv")
+```
+
+### Extracting the text from the tweets 
+
+```{r}
+blockchain_tweets<- identity$text
+noemoticon_tweets<- gsub("[^\x01-\x7F]", "", blockchain_tweets)
+removeURL <- gsub("http[^[:space:]]*", "", noemoticon_tweets)
+```
+
+### Deleting duplicates
+38097 unique documents (27126 duplicates) 
+Open refine is much more aggressive in the duplication detection. 
+
+```{r}
+noduplicate_tweets<- unique(removeURL)
+
+```
+
+
+#1. MOST COMMON HASHTAGS
+
+```{r}
+hashtags<-unlist(map(noduplicate_tweets, str_extract_all, pattern= "#\\S+")) %>%  tolower()
+hashtags<- removePunctuation(hashtags)
+hashtags<- stripWhitespace(hashtags)
+hashtag<- str_replace_all(hashtags, "cryptocurrencies", "crypto")
+hashtag<- str_replace_all(hashtag, "cryptocurrency", "crypto")
+hashtag<- str_replace_all(hashtag, "crypto", "cryptocurrency")
+hashtag<- str_replace_all(hashtag, "btc", "bitcoin" )
+hashtag<- str_replace_all(hashtag, "xrp", "ripple" )
+hashtag<- str_replace_all(hashtag, "ltc", "litecoin" )
+hashtag<- str_replace_all(hashtag, "darkcoin", "dash" )
+hashtag<- str_replace_all(hashtag, "xmr", "monero" )
+hashtag<- str_replace_all(hashtag, "zche", "zcash" )
+hashtag<- str_replace_all(hashtag, "ethereum", "eth" )
+hashtag<- str_replace_all(hashtag, "eth", "ethereum" )
+hashs<- table(hashtag) 
+hashs<- cbind.data.frame(names(hashs),as.integer(hashs)) 
+names(hashs)<- c("hashtags", "h_repeats")
+frequenthashtags<- hashs %>% arrange(desc(h_repeats))
+#write.csv(frequenthashtags, "frequenthashtags.csv")
+frequenthashtags %>% head(10) %>% kable( "html") %>%  
+  kable_styling("striped", full_width = F)
+top10hashtags<-frequenthashtags[3:13, ]
+
+
+```
+
+
+```{r}
+ggplot(top10hashtags, aes(x= fct_reorder(hashtags, h_repeats, .desc = T), y= h_repeats, fill= hashtags))+
+  xlab("Hashtags") + ylab("Count") + geom_bar(stat= "identity", colour= "black")+ scale_fill_manual(values=brewer.pal(n=11, "Paired"))+ 
+  theme(axis.text.x = element_text(angle=90))+ 
+  ggtitle("Top 10 hashtags")+  guides(fill = FALSE)
+```
+
+
+```{r}
+cyptocurrency<- c("bitcoin", "ripple",  "litecoin",  "dash",  "monero",  "ethereum",  "zcash",  
+                  "lino", "iota", "bitcoincash", "neo")
+
+topcrypto<-frequenthashtags %>% filter(hashtags %in% cyptocurrency) %>% 
+  head(10)
+names(topcrypto)<- c("cryptocurrencies", "number_mentions")
+topcrypto%>% kable( "html") %>%  
+  kable_styling("striped", full_width = F)
+```
+
+
+# 3. MOST INFLUENTIAL USERS
+
+
+```{r}
+user_mentions<-unlist(map(noduplicate_dtweets, str_extract_all, pattern= "@\\S+")) %>%  
+  tolower()
+user_mentions<- user_mentions %>% str_replace_all(":$", "") %>% 
+  stripWhitespace()
+mentions<- table(user_mentions) 
+mentions<- cbind.data.frame(names(mentions),as.integer(mentions)) 
+names(mentions)<- c("identity_user", "number_mentions")
+mentions<- mentions %>% arrange(desc(number_mentions))
+mentions %>% head(10) %>%  kable( "html") %>%  
+  kable_styling("striped", full_width = F) 
+
+```
+
+```{r}
+ggplot(topcrypto, aes(x= fct_reorder(cryptocurrencies, number_mentions, .desc = T), y= number_mentions, fill= cryptocurrencies))+
+  xlab("Cryptocurrencies") + ylab("Count") + 
+  geom_bar(stat= "identity", colour= "black")+ 
+  scale_fill_manual(values=brewer.pal(n=11, "Paired"))+ 
+  theme(axis.text.x = element_text(angle=0))+ 
+  ggtitle("Most Popular Cryptocurrencies ")+ guides(fill= F)
+```
+
+
+# 3. MOST RETWEETED MESSAGES
++ why were they retweeted? what are they?
+
+```{r}
+user_mentions<-unlist(map(noduplicate_tweets, str_extract_all, pattern= "@\\S+")) %>%  
+  tolower()
+user_mentions<- user_mentions %>% str_replace_all(":$", "") %>% 
+  stripWhitespace()
+mentions<- table(user_mentions) 
+mentions<- cbind.data.frame(names(mentions),as.integer(mentions)) 
+names(mentions)<- c("user", "number_mentions")
+mentions<- mentions %>% arrange(desc(number_mentions))
+mentions %>% head(10) %>% ggplot(aes(x= user, y= number_mentions, colour= user )) + geom_point(aes(size= number_mentions))
+```
+
+```{r}
+RT<- table(noemoticon_tweets)
+retweets<- cbind.data.frame(names(RT),as.integer(RT)) 
+names(retweets)<- c("RT", "n_retweets")
+retweets<- retweets %>% arrange(desc(n_retweets))
+retweets %>% head(10) %>% kable( "html") %>%  
+  kable_styling("striped", full_width = T)
+#write.csv(retweets, "retweets.csv")
+```
+
+### Building the Corpus
+
+VECTORIZING TWEETS
+```{r}
+blockchain_source=VectorSource(noduplicate_tweets)
+blockchain_corpus= VCorpus(blockchain_source)
+blockchain_corpus[[15]][1]
+
+```
+
+### Function to clean text
++ Sample of the tweet after the first cleaning round
+```{r}
+removeURL <- function(x) gsub("http[^[:space:]]*", "", x)
+clean_corpus <- function(corpus){
+  corpus <- tm_map(corpus, content_transformer(removeURL))
+  corpus <- tm_map(corpus, stripWhitespace)
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, content_transformer(tolower))
+  corpus <- tm_map(corpus, content_transformer(unique))
+  return(corpus)
+}
+
+blockchain_clean<- clean_corpus(blockchain_corpus)
+blockchain_clean[[15]][1]
+```
+
++ Further cleaning 
+```{r}
+replaceWord <- function(corpus, oldword, newword) { 
+              tm_map(corpus, content_transformer(gsub),
+             pattern=oldword, replacement=newword)}
+
+blockchain_corpus <- replaceWord(blockchain_clean, " crypto ", " cryptocurrency ")
+blockchain_corpus <- replaceWord(blockchain_corpus, " cryptocurrencies", " cryptocurrency ")
+blockchain_corpus <- replaceWord(blockchain_corpus, " tokens ", " token ")
+blockchain_corpus <- replaceWord(blockchain_corpus, "btc", "bitcoin")
+blockchain_corpus <- replaceWord(blockchain_corpus, "xrp", "ripple")
+blockchain_corpus <- replaceWord(blockchain_corpus, "ethereum", "eth")
+blockchain_corpus <- replaceWord(blockchain_corpus, "eth", "ethereum")
+blockchain_corpus<-  replaceWord(blockchain_corpus, "xrp", "ripple" )
+blockchain_corpus<-  replaceWord(blockchain_corpus, "ltc", "litecoin" )
+blockchain_corpus<-  replaceWord(blockchain_corpus, "darkcoin", "dash" )
+blockchain_corpus<-  replaceWord(blockchain_corpus, "xmr", "monero" )
+blockchain_corpus<-  replaceWord(blockchain_corpus, "zche", "zcash" )
+blockchain_corpus<-  replaceWord(blockchain_corpus, "identityverification", "verification" )
+blockchain_corpus[[15]][1]
+```
+
+### Cleaned tweet
+Removing stopwords and words that appear too frequently
+
+```{r}
+mystopwords<- c(stopwords('english'), "blockchain", "cryptocurrency", "identity", "digital", "rt ", "2018", "amp", "will", "via", "new", "now", "use", "can")
+blockchain_corpus<- tm_map(blockchain_corpus, removeWords, mystopwords)
+blockchain_corpus[[24]][1]
+```
+
+# Tokenizing terms (TDM) term document matrix
+```{r}
+blockchain_tdm<- TermDocumentMatrix(blockchain_corpus)
+blockchain_tdm
+```
+
+### Finding the most frequent terms (over 1500 apperances)
+Different types of cryptocurrencies have a significant apperance among terms. **News** provide updates, analysis and predictions about the **future** of blockchain. IoT is also commented frequently.
+
+```{r}
+freq.terms <- findFreqTerms(blockchain_tdm, lowfreq = 500)
+freq.terms
+```
+
+
+```{r}
+
+blockchain_m<- as.matrix(blockchain_tdm)
+```
+
+
+```{r}
+
+# Calculate the rowSums: term_frequency
+term_frequency<- rowSums(blockchain_m)
+
+# Sort term_frequency in descending order
+term_frequency<- subset(term_frequency, term_frequency >= 60)
+term_frequency<- sort(term_frequency,decreasing = TRUE)
+
+df <- data.frame(term = names(term_frequency), freq = term_frequency)
+df %>% head(10)
+
+```
+
+```{r}
+ggplot(df, aes(x= fct_reorder(term, freq, .desc = F)  , y= freq )) + geom_bar(stat="identity") +
+  xlab("Terms") + ylab("Count") + coord_flip() +
+  theme(axis.text=element_text(size=7))
+```
+
+
+```{r}
+# Create word_freqs
+word_freqs<- data.frame(term= names(term_frequency), num= term_frequency)
+
+# Create a wordcloud for the values in word_freqs
+wordcloud(word_freqs$term, word_freqs$num, scale = c(5,1),max.words = 50,random.order= F, colors = brewer.pal(8, "Dark2"),rot.per = 0.35,use.r.layout = F)
+```
+
+```{r}
+
+tdm2<- removeSparseTerms(blockchain_tdm, sparse= 0.96)
+
+# Create tdm_m
+tdm_m<- as.matrix(tdm2)
+
+# Create tdm_df
+tdm_df<- as.data.frame(tdm_m)
+
+# Create tweets_dist
+tweets_dist<- dist(tdm_df)
+
+# Create hc
+hc<- hclust(tweets_dist)
+
+hcd<- as.dendrogram(hc)
+# Print the labels in hcd
+labels(hcd)
+
+# Change the branch color to red for "marvin" and "gaye"
+hcd<- branches_attr_by_labels(hcd, c("security", "control", "verification", "trust", "management"), colors= "red")
+
+# Plot hcd
+
+plot(hcd, main= "Identity")
+# Add cluster rectangles 
+rect.dendrogram(hcd,k=4, border= "blue")
+```
+
+```{r}
+findAssocs(blockchain_tdm, "ico", 0.2)
+```
+
+
+```{r}
+sentiments<- sentiment(noduplicate_tweets)
+names(sentiments)<- c("id_tweets", "sentiment", "language")
+```
+
+```{r}
+table(sentiments$sentiment)
+sentiments$score <- 0
+sentiments$score[sentiments$sentiment == "positive"] <- 1
+sentiments$score[sentiments$sentiment == "negative"] <- -1
+positive<- sentiments %>% filter(sentiments$sentiment == "positive")
+str(positive)
+negative<- sentiments %>% filter(sentiments$sentiment == "negative")
+str(negative)
+neutral<-  sentiments %>% filter(sentiments$sentiment == "neutral")
+str(neutral)
+counts<-sentiments %>% select(id_tweets, sentiment) %>% count(vars= "sentiment")
+```
+
+
+```{r}
+ggplot(counts, aes(x= fct_reorder(sentiment, freq, .desc = T),  y= freq, label= freq, fill= c("beige", "darkblue", "darkred"))) + geom_bar(stat="identity") + geom_label(check_overlap = F, color= "darkred") + labs(y= "", x= "")+ guides(fill= F, colour= F)
+```
+
